@@ -1,0 +1,21 @@
+services:
+  backend:
+    build:
+      context: ./conflict-resolver-backend
+    environment:
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_MODEL: ${GROQ_MODEL:-openai/gpt-oss-20b}
+      WEB_CONCURRENCY: ${WEB_CONCURRENCY:-4}
+      TIMEOUT: ${TIMEOUT:-120}
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build:
+      context: ./conflict-resolver-frontend
+      args:
+        VITE_API_BASE_URL: http://localhost:8000
+    depends_on:
+      - backend
+    ports:
+      - "5173:80"

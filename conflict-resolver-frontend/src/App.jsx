@@ -1,47 +1,53 @@
 import { useState } from 'react'
 import axios from 'axios'
-import './App.css'
 import ReactFlow , { Background, Controls } from 'reactflow'
 import 'reactflow/dist/style.css'
+import './App.css'
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
 function App() {
   const [inputText , setInputText] = useState('');
   const [resolvedText , setResolvedText] = useState('');
+  const [explanation , setExplanation] = useState('');
+  const [confidence , setConfidence] = useState('');
+  const [needsManualReview , setNeedsManualReview] = useState(false);
+  const [errorMessage , setErrorMessage] = useState('');
+  const [isResolving , setIsResolving] = useState(false);
   const [nodes , setNodes] = useState([]);
   const [edges , setEdges] = useState([]);
 
   const handleResolveClick = async () => {
-    if (!inputText) return;
+    if (!inputText.trim() || isResolving) return;
 
     try {
-    
-      const response = await axios.post('http://localhost:8000/api/resolve', {
+      setIsResolving(true);
+      setErrorMessage('');
+      setExplanation('');
+
+      const response = await axios.post(`${API_BASE_URL}/api/resolve`, {
         raw_text: inputText
       });
-      
-      setResolvedText(response.data.dummy_ai_resolution);
 
-      const flowNodes = response.data.dummy_graph_data.nodes.map((node, index) => ({
+      const graphData = response.data.graph_data || response.data.dummy_graph_data;
+      setResolvedText(response.data.ai_resolution || response.data.dummy_ai_resolution);
+      setExplanation(response.data.explanation || '');
+      setConfidence(response.data.confidence || '');
+      setNeedsManualReview(Boolean(response.data.needs_manual_review));
+
+      const flowNodes = graphData.nodes.map((node, index) => ({
         id: node.id,
         data: { label: node.label },
-        position: { x: 250, y: index * 120 + 100 }, // Stacks them vertically
-        style: {
-          background: node.type === 'conflict' ? '#ef4444' : '#374151', // Red for conflict, grey for dep
-          color: 'white',
-          border: '1px solid #1f2937',
-          borderRadius: '8px',
-          padding: '12px',
-          fontWeight: 'bold'
-        }
+        position: { x: 240, y: index * 120 + 90 },
+        className: node.type === 'conflict' ? 'flow-node flow-node-conflict' : 'flow-node flow-node-dependency'
       }));
 
-      const flowEdges = response.data.dummy_graph_data.edges.map(edge => ({
+      const flowEdges = graphData.edges.map(edge => ({
         id: `${edge.source}-${edge.target}`,
         source: edge.source,
         target: edge.target,
-        animated: true, // Makes the connection line flow visually!
-        style: { stroke: '#60a5fa', strokeWidth: 2 }
+        animated: true,
+        className: 'impact-edge'
       }));
 
       setNodes(flowNodes);
@@ -49,70 +55,69 @@ function App() {
 
     } catch (error) {
       console.error("Error during API call:", error);
-      setResolvedText("// Error: Unable to resolve conflict. Please check the input or try again later.");
+      setErrorMessage("Unable to resolve this conflict right now. Check that the backend is running, then try again.");
+      setResolvedText("// Error: Unable to resolve conflict. Please check the backend and try again.");
+      setConfidence('');
+      setNeedsManualReview(true);
+    } finally {
+      setIsResolving(false);
     }
 
   }
 
   return (
-    <div className="h-screen w-full bg-gray-900 text-white flex flex-col font-sans">
-      
-      {/* Top Navbar */}
-      <header className="p-4 border-b border-gray-700 bg-gray-800">
-        <h1 className="text-xl font-bold text-blue-400">Git Conflict Resolver & Impact Simulator</h1>
+    <div className="app-shell">
+      <header className="app-header">
+        <h1>Git Conflict Resolver & Impact Simulator</h1>
+        <p>Paste a Git conflict, inspect the impact graph, and generate a safer merged version.</p>
       </header>
 
-      {/* Main Dashboard Area */}
-      <main className="flex-1 flex overflow-hidden">
-        
-        {/* LEFT PANEL: User Input */}
-        <div className="w-1/4 flex flex-col border-r border-gray-700 bg-gray-800">
-          <div className="p-4 bg-gray-700 font-semibold border-b border-gray-600">
-            1. Paste Conflicted Code
-          </div>
+      <main className="dashboard">
+        <section className="panel">
+          <div className="panel-title">1. Paste Conflicted Code</div>
           <textarea 
-            className="flex-1 w-full p-4 bg-gray-800 text-gray-300 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"
+            className="code-box"
             placeholder="<<<<<<< HEAD\n...\n=======\n...\n>>>>>>> incoming"
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
           />
-          <div className="p-4 border-t border-gray-700">
+          <div className="panel-actions">
             <button 
               onClick={handleResolveClick}
-              className="w-full py-2 bg-blue-600 hover:bg-blue-500 rounded text-white font-bold transition-colors"
+              className="primary-button"
+              disabled={!inputText.trim() || isResolving}
             >
-              Analyze & Resolve
+              {isResolving ? 'Resolving...' : 'Analyze & Resolve'}
             </button>
           </div>
-        </div>
+        </section>
 
-{/* CENTER PANEL: React Flow Graph Area */}
-        <div className="w-2/4 flex flex-col bg-gray-900 relative">
-          <div className="p-4 bg-gray-800 font-semibold border-b border-gray-700 absolute top-0 left-0 w-full z-10">
-            2. Impact Graph (Blast Radius)
-          </div>
-          
-          {/* NEW: The Interactive Canvas */}
-          <div className="flex-1 w-full h-full border-r border-gray-700 pt-16">
+        <section className="panel graph-panel">
+          <div className="panel-title">2. Impact Graph</div>
+          <div className="graph-canvas">
             <ReactFlow nodes={nodes} edges={edges} fitView>
               <Background color="#4b5563" gap={16} />
               <Controls />
             </ReactFlow>
           </div>
-        </div>
+        </section>
 
-        {/* RIGHT PANEL: AI Resolution Output */}
-        <div className="w-1/4 flex flex-col bg-gray-800">
-          <div className="p-4 bg-gray-700 font-semibold border-b border-gray-600">
-            3. Safely Merged Code
-          </div>
+        <section className="panel result-panel">
+          <div className="panel-title">3. Safely Merged Code</div>
+          {errorMessage && <div className="status-message status-error">{errorMessage}</div>}
+          {(explanation || confidence) && (
+            <div className={`status-message ${needsManualReview ? 'status-warning' : 'status-ok'}`}>
+              {confidence && <span className="status-pill">{confidence.toUpperCase()}</span>}
+              <span>{explanation}</span>
+            </div>
+          )}
           <textarea 
-            className="flex-1 w-full p-4 bg-gray-800 text-green-400 resize-none focus:outline-none font-mono text-sm"
+            className="code-box output-box"
             readOnly
             placeholder="// Merged code will appear here..."
             value={resolvedText}
           />
-        </div>
+        </section>
 
       </main>
     </div>
